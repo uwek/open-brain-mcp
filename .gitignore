@@ -6,4 +6,5 @@ __pycache__
 *.db
 here.sh
 truths.sh
+prompt.md
 
