@@ -1,0 +1,8 @@
+.venv-x86-64
+.venv-arm64
+.venv
+.ruff_cache
+__pycache__
+*.db
+here.sh
+truths.sh
