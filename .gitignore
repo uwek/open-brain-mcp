@@ -4,6 +4,11 @@
 .ruff_cache
 __pycache__
 *.db
+.coverage
+htmlcov/
+.pytest_cache/
+*.swp
+*.swo
 here.sh
 truths.sh
 prompt.md

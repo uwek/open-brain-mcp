@@ -12,6 +12,7 @@ bei jedem MCP-Request geprüft.
 import argparse
 import sys
 import os
+from contextlib import contextmanager
 
 # Damit Imports aus dem open-brain/-Verzeichnis funktionieren,
 # unabhängig vom CWD beim Aufruf.
@@ -22,6 +23,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 import ai
 import db
+
 
 # ---------------------------------------------------------------------------
 # Auth-Middleware
@@ -53,6 +55,26 @@ class KeyAuthMiddleware(Middleware):
 
 
 # ---------------------------------------------------------------------------
+# Database Context Manager
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def get_db_connection():
+    """Context Manager für thread-sichere DB-Connections.
+    
+    Jeder Aufruf öffnet eine neue Connection, die nach der Nutzung
+    automatisch geschlossen wird. Das verhindert Race-Conditions
+    bei concurrent Requests.
+    """
+    con = db.init_db()
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+# ---------------------------------------------------------------------------
 # Server-Setup
 # ---------------------------------------------------------------------------
 
@@ -74,8 +96,8 @@ def build_server(access_key: str | None) -> tuple:
         middleware=middleware,
     )
 
-    # DB einmalig öffnen und im Closure halten
-    con = db.init_db()
+    # Connection für Startup-Checks (wird nach build_server geschlossen)
+    startup_con = db.init_db()
 
     # -----------------------------------------------------------------------
     # Tool: add
@@ -90,7 +112,9 @@ def build_server(access_key: str | None) -> tuple:
     async def add(thought: str) -> str:
         """Speichert einen Thought mit Embedding und Metadaten."""
         embedding, metadata = await ai.get_embedding_and_metadata(thought)
-        thought_id = db.insert_thought(con, thought, embedding, metadata)
+        
+        with get_db_connection() as con:
+            thought_id = db.insert_thought(con, thought, embedding, metadata)
 
         lines = [f"Gespeichert als **{metadata.get('type', 'thought')}**"]
         if metadata.get("topics"):
@@ -120,7 +144,9 @@ def build_server(access_key: str | None) -> tuple:
     ) -> str:
         """Semantische Suche über alle gespeicherten Thoughts."""
         embedding = await ai.get_embedding(text)
-        results = db.search_thoughts(con, embedding, limit=limit, threshold=threshold)
+        
+        with get_db_connection() as con:
+            results = db.search_thoughts(con, embedding, limit=limit, threshold=threshold)
 
         if not results:
             return f'Keine Thoughts gefunden, die zu "{text}" passen.'
@@ -161,14 +187,15 @@ def build_server(access_key: str | None) -> tuple:
         days: int | None = None,
     ) -> str:
         """Listet Thoughts mit optionalen Filtern auf."""
-        results = db.list_thoughts(
-            con,
-            limit=limit,
-            type_filter=type,
-            topic=topic,
-            person=person,
-            days=days,
-        )
+        with get_db_connection() as con:
+            results = db.list_thoughts(
+                con,
+                limit=limit,
+                type_filter=type,
+                topic=topic,
+                person=person,
+                days=days,
+            )
 
         if not results:
             return "Keine Thoughts gefunden."
@@ -196,7 +223,8 @@ def build_server(access_key: str | None) -> tuple:
     )
     async def stats() -> str:
         """Statistiken über alle Thoughts."""
-        s = db.get_stats(con)
+        with get_db_connection() as con:
+            s = db.get_stats(con)
 
         lines = [
             f"**Gesamt:** {s['total']} Thought(s)",
@@ -221,7 +249,7 @@ def build_server(access_key: str | None) -> tuple:
 
         return "\n".join(lines)
 
-    return mcp, con
+    return mcp, startup_con
 
 
 # ---------------------------------------------------------------------------

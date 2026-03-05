@@ -365,15 +365,15 @@ open-brain-mcp/
 
 | # | Verbesserung | Aufwand | Priorität | Status |
 |---|-------------|---------|-----------|--------|
-| 2 | SQL-Injection fix | Gering | Hoch | ⬜ Todo |
-| 1 | API Retry-Logik | Mittel | Hoch | ⬜ Todo |
-| 3 | Thread-Safety DB | Mittel | Hoch | ⬜ Todo |
-| 4 | API-Key Validierung | Gering | Mittel | ⬜ Todo |
+| 2 | SQL-Injection fix | Gering | Hoch | ✅ Done |
+| 1 | API Retry-Logik | Mittel | Hoch | ✅ Done |
+| 3 | Thread-Safety DB | Mittel | Hoch | ✅ Done |
+| 4 | API-Key Validierung | Gering | Mittel | ✅ Done |
 | 5 | pyproject.toml | Mittel | Mittel | ⬜ Todo |
-| 6 | Tests | Hoch | Mittel | ⬜ Todo |
+| 6 | Tests (>80% Coverage) | Hoch | Mittel | ✅ Done |
 | 7 | Embedding-Dimension | Mittel | Mittel | ⬜ Todo |
-| 8 | Rate-Limiter | Mittel | Mittel | ⬜ Todo |
-| 10 | .env.example | Gering | Niedrig | ⬜ Todo |
+| 8 | Rate-Limiter | Mittel | Mittel | ✅ Done |
+| 10 | .env.example | Gering | Niedrig | ✅ Done |
 | 9 | Dateien bereinigen | Gering | Niedrig | ⬜ Todo |
 | 11 | Type-Hints | Mittel | Niedrig | ⬜ Todo |
 | 12 | Logging | Mittel | Niedrig | ⬜ Todo |

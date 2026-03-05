@@ -216,7 +216,8 @@ def list_thoughts(
             params.append(type_filter)
 
     if days:
-        sql += f" AND created_at >= datetime('now', '-{int(days)} days')"
+        sql += " AND created_at >= datetime('now', ? || ' days')"
+        params.append(f"-{int(days)}")
 
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
