@@ -3,6 +3,8 @@ Konfiguration für open-brain.
 Liest alle benötigten Umgebungsvariablen.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -11,6 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 def require(name: str) -> str:
+    """Liest eine Pflicht-Umgebungsvariable.
+
+    Args:
+        name: Name der Umgebungsvariable
+
+    Returns:
+        Wert der Umgebungsvariable
+
+    Raises:
+        RuntimeError: Wenn die Variable nicht gesetzt oder leer ist
+    """
     value = os.environ.get(name)
     if not value:
         raise RuntimeError(
@@ -21,7 +34,15 @@ def require(name: str) -> str:
 
 
 def get_float(name: str, default: float) -> float:
-    """Liest eine Float-Umgebungsvariable mit Default-Wert."""
+    """Liest eine Float-Umgebungsvariable mit Default-Wert.
+
+    Args:
+        name: Name der Umgebungsvariable
+        default: Default-Wert wenn nicht gesetzt oder ungültig
+
+    Returns:
+        Float-Wert der Umgebungsvariable oder Default
+    """
     value = os.environ.get(name)
     if value is None:
         return default
@@ -32,10 +53,17 @@ def get_float(name: str, default: float) -> float:
         return default
 
 
-def validate_openrouter_key(key: str) -> bool:
+def validate_openrouter_key(key: str | None) -> bool:
     """Validiert das Format eines OpenRouter API-Keys.
-    
-    Erwartet Format: sk-or-v1-xxxxx... (mindestens 20 Zeichen)
+
+    Args:
+        key: Der zu prüfende API-Key
+
+    Returns:
+        True wenn der Key gültig aussieht, sonst False
+
+    Note:
+        Erwartet Format: sk-or-v1-xxxxx... (mindestens 20 Zeichen)
     """
     if not key:
         return False
@@ -47,25 +75,27 @@ def validate_openrouter_key(key: str) -> bool:
     return key.startswith("sk-or-") and len(key) >= 20
 
 
+# =============================================================================
+# Konfigurationswerte
+# =============================================================================
+
 # Pflichtfelder
-_api_key = require("OPENROUTER_API_KEY")
+_api_key: str = require("OPENROUTER_API_KEY")
 if not validate_openrouter_key(_api_key):
     logger.warning(
         "OPENROUTER_API_KEY hat ein ungewöhnliches Format. "
         "Erwartet: 'sk-or-...' mit mindestens 20 Zeichen."
     )
-OPENROUTER_API_KEY: str = _api_key
 
-# Optionale Felder
+OPENROUTER_API_KEY: str = _api_key
 OPENBRAIN_DB_PATH: str = os.environ.get(
     "OPENBRAIN_DB_PATH",
     os.path.join(os.path.dirname(__file__), "brain.db"),
 )
-
-# Rate-Limit-Konfiguration (Calls pro Sekunde)
 OPENROUTER_RATE_LIMIT: float = get_float("OPENROUTER_RATE_LIMIT", default=2.0)
 
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
-EMBEDDING_MODEL = "openai/text-embedding-3-small"
-METADATA_MODEL = "openai/gpt-4o-mini"
-EMBEDDING_DIM = 1536
+# API-Konfiguration
+OPENROUTER_BASE: str = "https://openrouter.ai/api/v1"
+EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
+METADATA_MODEL: str = "openai/gpt-4o-mini"
+EMBEDDING_DIM: int = 1536

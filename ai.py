@@ -3,6 +3,8 @@ OpenRouter-Integration für open-brain.
 Stellt Embedding- und Metadaten-Extraktion bereit.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -11,18 +13,18 @@ from typing import Any
 
 import httpx
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
 import config
 
 logger = logging.getLogger(__name__)
 
-METADATA_PROMPT = """Extract metadata from the user's captured thought. Return JSON with:
+METADATA_PROMPT: str = """Extract metadata from the user's captured thought. Return JSON with:
 - "people": array of people mentioned (empty if none)
 - "action_items": array of implied to-dos (empty if none)
 - "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
@@ -31,10 +33,10 @@ METADATA_PROMPT = """Extract metadata from the user's captured thought. Return J
 Only extract what's explicitly there."""
 
 # Timeout: connect 10s, read 90s (LLM-Antworten können länger dauern)
-_TIMEOUT = httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0)
+_TIMEOUT: httpx.Timeout = httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0)
 
 # Retry-Konfiguration
-_RETRY_CONFIG = {
+_RETRY_CONFIG: dict[str, Any] = {
     "stop": stop_after_attempt(3),
     "wait": wait_exponential(multiplier=1, min=2, max=10),
     "retry": retry_if_exception_type(
@@ -52,24 +54,24 @@ _RETRY_CONFIG = {
 
 class RateLimiter:
     """Einfacher Rate-Limiter mit Token-Bucket-Algorithmus.
-    
+
     Begrenzt die Anzahl der API-Calls pro Sekunde, um Rate-Limits
     des Providers zu respektieren.
     """
-    
-    def __init__(self, calls_per_second: float = 2.0):
+
+    def __init__(self, calls_per_second: float = 2.0) -> None:
         """Initialisiert den Rate-Limiter.
-        
+
         Args:
             calls_per_second: Maximale Anzahl Calls pro Sekunde (default: 2.0)
         """
-        self._interval = 1.0 / calls_per_second
-        self._lock = asyncio.Lock()
-        self._last_call = 0.0
-    
+        self._interval: float = 1.0 / calls_per_second
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._last_call: float = 0.0
+
     async def acquire(self) -> None:
         """Wartet, bis ein Call erlaubt ist.
-        
+
         Diese Methode ist thread-safe und kann von mehreren
         Coroutinen gleichzeitig aufgerufen werden.
         """
@@ -87,7 +89,11 @@ _rate_limiter: RateLimiter | None = None
 
 
 def get_rate_limiter() -> RateLimiter:
-    """Gibt den globalen Rate-Limiter zurück (Singleton)."""
+    """Gibt den globalen Rate-Limiter zurück (Singleton).
+
+    Returns:
+        RateLimiter Instanz
+    """
     global _rate_limiter
     if _rate_limiter is None:
         calls_per_second = getattr(config, 'OPENROUTER_RATE_LIMIT', 2.0)
@@ -97,6 +103,11 @@ def get_rate_limiter() -> RateLimiter:
 
 
 def _headers() -> dict[str, str]:
+    """Erstellt die HTTP-Header für OpenRouter API-Calls.
+
+    Returns:
+        Dictionary mit Authorization und Content-Type Headers
+    """
     return {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -105,9 +116,22 @@ def _headers() -> dict[str, str]:
 
 @retry(**_RETRY_CONFIG)
 async def _get_embedding_call(client: httpx.AsyncClient, text: str) -> list[float]:
-    """Ein einzelner Embedding-API-Call mit Retry-Schutz und Rate-Limiting."""
+    """Ein einzelner Embedding-API-Call mit Retry-Schutz und Rate-Limiting.
+
+    Args:
+        client: HTTP Client für den Request
+        text: Text für den das Embedding erzeugt werden soll
+
+    Returns:
+        1536-dimensionaler Embedding-Vektor
+
+    Raises:
+        httpx.HTTPStatusError: Bei API-Fehlern
+        httpx.ConnectError: Bei Verbindungsproblemen
+        httpx.TimeoutException: Bei Timeout
+    """
     await get_rate_limiter().acquire()
-    
+
     response = await client.post(
         f"{config.OPENROUTER_BASE}/embeddings",
         headers=_headers(),
@@ -117,15 +141,28 @@ async def _get_embedding_call(client: httpx.AsyncClient, text: str) -> list[floa
         },
     )
     response.raise_for_status()
-    data = response.json()
-    return data["data"][0]["embedding"]
+    data: dict[str, Any] = response.json()
+    return list(data["data"][0]["embedding"])
 
 
 @retry(**_RETRY_CONFIG)
 async def _extract_metadata_call(client: httpx.AsyncClient, text: str) -> dict[str, Any]:
-    """Ein einzelner Metadata-API-Call mit Retry-Schutz und Rate-Limiting."""
+    """Ein einzelner Metadata-API-Call mit Retry-Schutz und Rate-Limiting.
+
+    Args:
+        client: HTTP Client für den Request
+        text: Text aus dem Metadaten extrahiert werden sollen
+
+    Returns:
+        Dictionary mit extrahierten Metadaten
+
+    Raises:
+        httpx.HTTPStatusError: Bei API-Fehlern
+        httpx.ConnectError: Bei Verbindungsproblemen
+        httpx.TimeoutException: Bei Timeout
+    """
     await get_rate_limiter().acquire()
-    
+
     response = await client.post(
         f"{config.OPENROUTER_BASE}/chat/completions",
         headers=_headers(),
@@ -139,9 +176,12 @@ async def _extract_metadata_call(client: httpx.AsyncClient, text: str) -> dict[s
         },
     )
     response.raise_for_status()
-    data = response.json()
+    data: dict[str, Any] = response.json()
     try:
-        return json.loads(data["choices"][0]["message"]["content"])
+        content = data["choices"][0]["message"]["content"]
+        if isinstance(content, str):
+            return dict(json.loads(content))
+        return {"topics": ["uncategorized"], "type": "observation"}
     except (KeyError, json.JSONDecodeError):
         return {"topics": ["uncategorized"], "type": "observation"}
 
@@ -149,28 +189,54 @@ async def _extract_metadata_call(client: httpx.AsyncClient, text: str) -> dict[s
 async def get_embedding(
     text: str, client: httpx.AsyncClient | None = None
 ) -> list[float]:
-    """Erzeugt einen Embedding-Vektor (1536 Dimensionen) via OpenRouter."""
+    """Erzeugt einen Embedding-Vektor (1536 Dimensionen) via OpenRouter.
+
+    Args:
+        text: Text für den das Embedding erzeugt werden soll
+        client: Optionaler HTTP Client (sonst wird ein neuer erstellt)
+
+    Returns:
+        1536-dimensionaler Embedding-Vektor
+    """
     if client is not None:
-        return await _get_embedding_call(client, text)
+        result: list[float] = await _get_embedding_call(client, text)
+        return result
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        return await _get_embedding_call(c, text)
+        result2: list[float] = await _get_embedding_call(c, text)
+        return result2
 
 
 async def extract_metadata(
     text: str, client: httpx.AsyncClient | None = None
 ) -> dict[str, Any]:
-    """Extrahiert strukturierte Metadaten aus einem Thought-Text via GPT-4o-mini."""
+    """Extrahiert strukturierte Metadaten aus einem Thought-Text via GPT-4o-mini.
+
+    Args:
+        text: Text aus dem Metadaten extrahiert werden sollen
+        client: Optionaler HTTP Client (sonst wird ein neuer erstellt)
+
+    Returns:
+        Dictionary mit keys: type, topics, people, action_items, dates_mentioned
+    """
     if client is not None:
-        return await _extract_metadata_call(client, text)
+        result: dict[str, Any] = await _extract_metadata_call(client, text)
+        return result
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        return await _extract_metadata_call(c, text)
+        result2: dict[str, Any] = await _extract_metadata_call(c, text)
+        return result2
 
 
 async def get_embedding_and_metadata(text: str) -> tuple[list[float], dict[str, Any]]:
-    """
-    Holt Embedding und Metadaten über einen gemeinsamen HTTP-Client.
+    """Holt Embedding und Metadaten über einen gemeinsamen HTTP-Client.
+
     Die beiden Requests laufen sequenziell, um Connection-Timeouts
     bei parallelen Verbindungsaufbauten zu vermeiden.
+
+    Args:
+        text: Text für den Embedding und Metadaten erzeugt werden sollen
+
+    Returns:
+        Tuple aus (embedding, metadata)
     """
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         metadata = await _extract_metadata_call(client, text)

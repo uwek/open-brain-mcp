@@ -369,13 +369,13 @@ open-brain-mcp/
 | 1 | API Retry-Logik | Mittel | Hoch | ✅ Done |
 | 3 | Thread-Safety DB | Mittel | Hoch | ✅ Done |
 | 4 | API-Key Validierung | Gering | Mittel | ✅ Done |
-| 5 | pyproject.toml | Mittel | Mittel | ⬜ Todo |
+| 5 | pyproject.toml | Mittel | Mittel | ✅ Done |
 | 6 | Tests (>80% Coverage) | Hoch | Mittel | ✅ Done |
 | 7 | Embedding-Dimension | Mittel | Mittel | ⬜ Todo |
 | 8 | Rate-Limiter | Mittel | Mittel | ✅ Done |
 | 10 | .env.example | Gering | Niedrig | ✅ Done |
 | 9 | Dateien bereinigen | Gering | Niedrig | ⬜ Todo |
-| 11 | Type-Hints | Mittel | Niedrig | ⬜ Todo |
+| 11 | Type-Hints | Mittel | Niedrig | ✅ Done |
 | 12 | Logging | Mittel | Niedrig | ⬜ Todo |
 | 13 | Health-Check | Gering | Niedrig | ⬜ Todo |
 | 15 | Graceful Shutdown | Gering | Niedrig | ⬜ Todo |

@@ -3,6 +3,8 @@ Datenbankschicht für open-brain.
 Nutzt SQLite + sqlite-vec (via Python-Package) für Vektorsuche.
 """
 
+from __future__ import annotations
+
 import json
 import sqlite3
 import struct
@@ -15,12 +17,23 @@ import config
 
 
 def _serialize_vec(v: list[float]) -> bytes:
-    """Serialisiert einen Float-Vektor als Little-Endian bytes für sqlite-vec."""
+    """Serialisiert einen Float-Vektor als Little-Endian bytes für sqlite-vec.
+
+    Args:
+        v: Liste von Float-Werten
+
+    Returns:
+        Bytes-Repräsentation für sqlite-vec
+    """
     return struct.pack(f"{len(v)}f", *v)
 
 
 def get_connection() -> sqlite3.Connection:
-    """Öffnet eine SQLite-Verbindung und lädt sqlite-vec."""
+    """Öffnet eine SQLite-Verbindung und lädt sqlite-vec.
+
+    Returns:
+        SQLite Connection mit geladenem sqlite-vec Extension
+    """
     con = sqlite3.connect(config.OPENBRAIN_DB_PATH)
     con.enable_load_extension(True)
     sqlite_vec.load(con)
@@ -30,7 +43,11 @@ def get_connection() -> sqlite3.Connection:
 
 
 def setup(con: sqlite3.Connection) -> None:
-    """Erstellt alle Tabellen, Trigger und Indizes, falls noch nicht vorhanden."""
+    """Erstellt alle Tabellen, Trigger und Indizes, falls noch nicht vorhanden.
+
+    Args:
+        con: Aktive SQLite Connection
+    """
     con.executescript(f"""
         CREATE TABLE IF NOT EXISTS thoughts (
             id         TEXT PRIMARY KEY
@@ -64,7 +81,11 @@ def setup(con: sqlite3.Connection) -> None:
 
 
 def init_db() -> sqlite3.Connection:
-    """Öffnet die Verbindung und initialisiert das Schema."""
+    """Öffnet die Verbindung und initialisiert das Schema.
+
+    Returns:
+        Initialisierte SQLite Connection
+    """
     con = get_connection()
     setup(con)
     return con
@@ -81,7 +102,17 @@ def insert_thought(
     embedding: list[float],
     metadata: dict[str, Any],
 ) -> str:
-    """Speichert einen Thought + Vektor und gibt die neue ID zurück."""
+    """Speichert einen Thought + Vektor und gibt die neue ID zurück.
+
+    Args:
+        con: Aktive SQLite Connection
+        content: Text des Thoughts
+        embedding: 1536-dimensionaler Embedding-Vektor
+        metadata: Metadaten als Dictionary
+
+    Returns:
+        UUID des neu erstellten Thoughts
+    """
     thought_id = str(uuid.uuid4()).replace("-", "")
     meta_json = json.dumps(metadata, ensure_ascii=False)
     vec_bytes = _serialize_vec(embedding)
@@ -117,6 +148,15 @@ def search_thoughts(
     Für normalisierte Vektoren (wie text-embedding-3-small sie liefert) gilt:
         similarity = 1 - distance / 2
     Dabei ist similarity=1.0 ein exakter Match, similarity=0.0 orthogonal.
+
+    Args:
+        con: Aktive SQLite Connection
+        query_embedding: Embedding-Vektor für die Suchanfrage
+        limit: Maximale Anzahl Ergebnisse
+        threshold: Minimale Similarity (0.0 - 1.0)
+
+    Returns:
+        Liste von gefundenen Thoughts mit Similarity-Score
     """
     vec_bytes = _serialize_vec(query_embedding)
 
@@ -137,7 +177,7 @@ def search_thoughts(
         (vec_bytes, limit),
     ).fetchall()
 
-    results = []
+    results: list[dict[str, Any]] = []
     for row in rows:
         # L2-Distanz → Cosine-Similarity (nur für normalisierte Vektoren korrekt)
         dist = row["distance"]
@@ -169,7 +209,19 @@ def list_thoughts(
     person: str | None = None,
     days: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Listet Thoughts mit optionalen Filtern."""
+    """Listet Thoughts mit optionalen Filtern.
+
+    Args:
+        con: Aktive SQLite Connection
+        limit: Maximale Anzahl Ergebnisse
+        type_filter: Filter nach Thought-Type
+        topic: Filter nach Topic
+        person: Filter nach Person
+        days: Filter nach Alter in Tagen
+
+    Returns:
+        Liste von Thoughts
+    """
     params: list[Any] = []
 
     if topic and person:
@@ -239,6 +291,50 @@ def list_thoughts(
 # ---------------------------------------------------------------------------
 
 
+def get_stats(con: sqlite3.Connection) -> dict[str, Any]:
+    """Aggregiert Statistiken über alle Thoughts.
+
+    Args:
+        con: Aktive SQLite Connection
+
+    Returns:
+        Dictionary mit total, oldest, newest, types, top_topics, top_people
+    """
+    total = con.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
+
+    date_row = con.execute(
+        "SELECT MIN(created_at) AS oldest, MAX(created_at) AS newest FROM thoughts"
+    ).fetchone()
+
+    rows = con.execute("SELECT metadata FROM thoughts").fetchall()
+
+    types: dict[str, int] = {}
+    topics: dict[str, int] = {}
+    people: dict[str, int] = {}
+
+    for row in rows:
+        m = json.loads(row["metadata"])
+        t = m.get("type")
+        if t:
+            types[t] = types.get(t, 0) + 1
+        for topic in m.get("topics", []):
+            topics[topic] = topics.get(topic, 0) + 1
+        for person in m.get("people", []):
+            people[person] = people.get(person, 0) + 1
+
+    def top(d: dict[str, int], n: int = 10) -> list[tuple[str, int]]:
+        return sorted(d.items(), key=lambda x: x[1], reverse=True)[:n]
+
+    return {
+        "total": total,
+        "oldest": date_row["oldest"] if date_row else None,
+        "newest": date_row["newest"] if date_row else None,
+        "types": dict(top(types)),
+        "top_topics": dict(top(topics)),
+        "top_people": dict(top(people)),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Export / Import
 # ---------------------------------------------------------------------------
@@ -250,13 +346,18 @@ def export_thoughts(
 ) -> list[dict[str, Any]]:
     """Exportiert alle Thoughts als Liste von Dicts.
 
-    Mit include_embeddings=True wird das Embedding als float-Liste mitgeliefert.
+    Args:
+        con: Aktive SQLite Connection
+        include_embeddings: Ob Embeddings mit exportiert werden sollen
+
+    Returns:
+        Liste aller Thoughts als Dictionaries
     """
     rows = con.execute(
         "SELECT rowid, id, content, metadata, created_at, updated_at FROM thoughts"
     ).fetchall()
 
-    results = []
+    results: list[dict[str, Any]] = []
     for row in rows:
         entry: dict[str, Any] = {
             "id": row["id"],
@@ -291,9 +392,18 @@ def import_thought(
 ) -> str:
     """Importiert einen einzelnen Thought mit vorgegebener ID.
 
-    on_conflict: 'skip' – überspringt vorhandene IDs
-                 'replace' – überschreibt vorhandene IDs
-    Gibt den Status zurück: 'inserted', 'replaced' oder 'skipped'.
+    Args:
+        con: Aktive SQLite Connection
+        thought_id: UUID des Thoughts
+        content: Text des Thoughts
+        embedding: 1536-dimensionaler Embedding-Vektor
+        metadata: Metadaten als Dictionary
+        created_at: Optionaler Zeitstempel
+        updated_at: Optionaler Zeitstempel
+        on_conflict: 'skip' oder 'replace' bei existierender ID
+
+    Returns:
+        Status: 'inserted', 'replaced' oder 'skipped'
     """
     existing = con.execute(
         "SELECT rowid FROM thoughts WHERE id = ?", (thought_id,)
@@ -331,40 +441,3 @@ def import_thought(
     )
     con.commit()
     return "replaced" if existing else "inserted"
-
-
-def get_stats(con: sqlite3.Connection) -> dict[str, Any]:
-    """Aggregiert Statistiken über alle Thoughts."""
-    total = con.execute("SELECT COUNT(*) FROM thoughts").fetchone()[0]
-
-    date_row = con.execute(
-        "SELECT MIN(created_at) AS oldest, MAX(created_at) AS newest FROM thoughts"
-    ).fetchone()
-
-    rows = con.execute("SELECT metadata FROM thoughts").fetchall()
-
-    types: dict[str, int] = {}
-    topics: dict[str, int] = {}
-    people: dict[str, int] = {}
-
-    for row in rows:
-        m = json.loads(row["metadata"])
-        t = m.get("type")
-        if t:
-            types[t] = types.get(t, 0) + 1
-        for topic in m.get("topics", []):
-            topics[topic] = topics.get(topic, 0) + 1
-        for person in m.get("people", []):
-            people[person] = people.get(person, 0) + 1
-
-    def top(d: dict[str, int], n: int = 10) -> list[tuple[str, int]]:
-        return sorted(d.items(), key=lambda x: x[1], reverse=True)[:n]
-
-    return {
-        "total": total,
-        "oldest": date_row["oldest"],
-        "newest": date_row["newest"],
-        "types": dict(top(types)),
-        "top_topics": dict(top(topics)),
-        "top_people": dict(top(people)),
-    }

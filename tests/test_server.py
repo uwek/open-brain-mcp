@@ -118,7 +118,7 @@ class TestThreadSafety:
                     db.insert_thought(con, content=f"Test {i}", embedding=[0.1] * 1536, metadata={"type": "observation"})
                 con.close()
                 async def call_list(idx):
-                    result = await mcp.call_tool("list", {"limit": 10})
+                    result = await mcp.call_tool("list_thoughts", {"limit": 10})
                     return idx, result.content[0].text
                 results = await asyncio.gather(call_list(0), call_list(1), call_list(2))
                 for idx, text in results:
@@ -225,7 +225,7 @@ class TestListTool:
             with patch.object(db.config, "OPENBRAIN_DB_PATH", tmp.name):
                 mcp, con = build_server(None)
                 db.insert_thought(con, content="Test", embedding=[0.1] * 1536, metadata={})
-                result = await mcp.call_tool("list", {"limit": 10})
+                result = await mcp.call_tool("list_thoughts", {"limit": 10})
                 assert "Test" in result.content[0].text
                 con.close()
 
@@ -235,7 +235,7 @@ class TestListTool:
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             with patch.object(db.config, "OPENBRAIN_DB_PATH", tmp.name):
                 mcp, con = build_server(None)
-                result = await mcp.call_tool("list", {"limit": 10})
+                result = await mcp.call_tool("list_thoughts", {"limit": 10})
                 assert "Keine" in result.content[0].text
                 con.close()
 

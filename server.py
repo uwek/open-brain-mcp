@@ -9,10 +9,15 @@ Mit --key wird der Header 'x-brain-key' oder der Query-Parameter '?key='
 bei jedem MCP-Request geprüft.
 """
 
+from __future__ import annotations
+
 import argparse
-import sys
 import os
+import sqlite3
+import sys
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import Any
 
 # Damit Imports aus dem open-brain/-Verzeichnis funktionieren,
 # unabhängig vom CWD beim Aufruf.
@@ -24,7 +29,6 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 import ai
 import db
 
-
 # ---------------------------------------------------------------------------
 # Auth-Middleware
 # ---------------------------------------------------------------------------
@@ -34,13 +38,36 @@ class KeyAuthMiddleware(Middleware):
     """Einfache API-Key-Authentifizierung via Header oder Query-Parameter."""
 
     def __init__(self, key: str) -> None:
+        """Initialisiert die Middleware.
+
+        Args:
+            key: Der erwartete API-Key
+        """
         self.key = key
 
-    async def __call__(self, context: MiddlewareContext, call_next):
+    async def __call__(
+        self, context: MiddlewareContext, call_next: Any
+    ) -> Any:
+        """Prüft den API-Key und ruft den nächsten Handler auf.
+
+        Args:
+            context: Der Middleware-Kontext
+            call_next: Der nächste Handler in der Kette
+
+        Returns:
+            Ergebnis des nächsten Handlers
+
+        Raises:
+            PermissionError: Wenn der API-Key fehlt oder ungültig ist
+        """
         ctx = context.fastmcp_context
         request = None
-        if ctx.request_context and ctx.request_context.request:
-            request = ctx.request_context.request
+        if ctx is not None:
+            req_ctx = ctx.request_context
+            if req_ctx is not None:
+                req = req_ctx.request
+                if req is not None:
+                    request = req
 
         if request is not None:
             provided = request.headers.get("x-brain-key") or request.query_params.get(
@@ -60,12 +87,19 @@ class KeyAuthMiddleware(Middleware):
 
 
 @contextmanager
-def get_db_connection():
+def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
     """Context Manager für thread-sichere DB-Connections.
-    
+
     Jeder Aufruf öffnet eine neue Connection, die nach der Nutzung
     automatisch geschlossen wird. Das verhindert Race-Conditions
     bei concurrent Requests.
+
+    Yields:
+        SQLite Connection
+
+    Example:
+        with get_db_connection() as con:
+            db.insert_thought(con, "test", embedding, metadata)
     """
     con = db.init_db()
     try:
@@ -79,8 +113,16 @@ def get_db_connection():
 # ---------------------------------------------------------------------------
 
 
-def build_server(access_key: str | None) -> tuple:
-    middleware = []
+def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
+    """Erstellt und konfiguriert den FastMCP-Server.
+
+    Args:
+        access_key: Optionaler API-Key für Authentifizierung
+
+    Returns:
+        Tuple aus (FastMCP Instanz, Startup Connection)
+    """
+    middleware: list[Middleware] = []
     if access_key:
         middleware.append(KeyAuthMiddleware(access_key))
 
@@ -110,9 +152,16 @@ def build_server(access_key: str | None) -> tuple:
         )
     )
     async def add(thought: str) -> str:
-        """Speichert einen Thought mit Embedding und Metadaten."""
+        """Speichert einen Thought mit Embedding und Metadaten.
+
+        Args:
+            thought: Der zu speichernde Gedanke
+
+        Returns:
+            Bestätigung mit Metadaten und ID
+        """
         embedding, metadata = await ai.get_embedding_and_metadata(thought)
-        
+
         with get_db_connection() as con:
             thought_id = db.insert_thought(con, thought, embedding, metadata)
 
@@ -142,9 +191,18 @@ def build_server(access_key: str | None) -> tuple:
         limit: int = 10,
         threshold: float = 0.3,
     ) -> str:
-        """Semantische Suche über alle gespeicherten Thoughts."""
+        """Semantische Suche über alle gespeicherten Thoughts.
+
+        Args:
+            text: Suchbegriff oder -phrase
+            limit: Maximale Anzahl Ergebnisse
+            threshold: Minimale Similarity (0.0 - 1.0)
+
+        Returns:
+            Formatierter String mit Suchergebnissen
+        """
         embedding = await ai.get_embedding(text)
-        
+
         with get_db_connection() as con:
             results = db.search_thoughts(con, embedding, limit=limit, threshold=threshold)
 
@@ -179,14 +237,25 @@ def build_server(access_key: str | None) -> tuple:
             "Optionale Filter: type, topic, person, days."
         )
     )
-    async def list(
+    async def list_thoughts(
         limit: int = 10,
         type: str | None = None,
         topic: str | None = None,
         person: str | None = None,
         days: int | None = None,
     ) -> str:
-        """Listet Thoughts mit optionalen Filtern auf."""
+        """Listet Thoughts mit optionalen Filtern auf.
+
+        Args:
+            limit: Maximale Anzahl Ergebnisse
+            type: Filter nach Thought-Type
+            topic: Filter nach Topic
+            person: Filter nach Person
+            days: Filter nach Alter in Tagen
+
+        Returns:
+            Formatierter String mit aufgelisteten Thoughts
+        """
         with get_db_connection() as con:
             results = db.list_thoughts(
                 con,
@@ -222,7 +291,11 @@ def build_server(access_key: str | None) -> tuple:
         )
     )
     async def stats() -> str:
-        """Statistiken über alle Thoughts."""
+        """Statistiken über alle Thoughts.
+
+        Returns:
+            Formatierter String mit Statistiken
+        """
         with get_db_connection() as con:
             s = db.get_stats(con)
 
@@ -258,6 +331,7 @@ def build_server(access_key: str | None) -> tuple:
 
 
 def main() -> None:
+    """Haupteinstiegspunkt für den Server."""
     parser = argparse.ArgumentParser(description="open-brain MCP-Server")
     parser.add_argument(
         "--port", type=int, default=4567, help="HTTP-Port (default: 4567)"

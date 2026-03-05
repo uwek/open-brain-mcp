@@ -9,25 +9,36 @@ Verwendung:
     python open-brain/cli.py stats [--json]
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import json as json_mod
-import sys
 import os
+import sys
+from datetime import UTC, datetime
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 import ai
 import db
 
-
 # ---------------------------------------------------------------------------
 # Markdown-Formatter
 # ---------------------------------------------------------------------------
 
 
-def fmt_thought_list(results: list[dict], title: str) -> str:
+def fmt_thought_list(results: list[dict[str, Any]], title: str) -> str:
+    """Formatiert eine Liste von Thoughts als Markdown.
+
+    Args:
+        results: Liste von Thought-Dictionaries
+        title: Überschrift für die Liste
+
+    Returns:
+        Markdown-formatierter String
+    """
     if not results:
         return f"*{title}: Keine Einträge gefunden.*"
     lines = [f"# {title}", ""]
@@ -48,7 +59,16 @@ def fmt_thought_list(results: list[dict], title: str) -> str:
     return "\n".join(lines)
 
 
-def fmt_search_results(results: list[dict], query: str) -> str:
+def fmt_search_results(results: list[dict[str, Any]], query: str) -> str:
+    """Formatiert Suchergebnisse als Markdown.
+
+    Args:
+        results: Liste von Suchergebnis-Dictionaries
+        query: Die Suchanfrage
+
+    Returns:
+        Markdown-formatierter String
+    """
     if not results:
         return f'*Keine Thoughts gefunden für: "{query}"*'
     lines = [f'# Suchergebnisse: "{query}"', ""]
@@ -68,7 +88,15 @@ def fmt_search_results(results: list[dict], query: str) -> str:
     return "\n".join(lines)
 
 
-def fmt_stats(s: dict) -> str:
+def fmt_stats(s: dict[str, Any]) -> str:
+    """Formatiert Statistiken als Markdown.
+
+    Args:
+        s: Statistik-Dictionary
+
+    Returns:
+        Markdown-formatierter String
+    """
     lines = [
         "# open-brain Statistiken",
         "",
@@ -95,7 +123,19 @@ def fmt_stats(s: dict) -> str:
     return "\n".join(lines)
 
 
-def fmt_add_result(thought_id: str, metadata: dict, content: str | None = None) -> str:
+def fmt_add_result(
+    thought_id: str, metadata: dict[str, Any], content: str | None = None
+) -> str:
+    """Formatiert das Ergebnis eines add-Befehls.
+
+    Args:
+        thought_id: ID des gespeicherten Thoughts
+        metadata: Extrahierte Metadaten
+        content: Optionaler Inhalt für Zitat-Anzeige
+
+    Returns:
+        Markdown-formatierter String
+    """
     lines = [
         "# Thought gespeichert",
         "",
@@ -119,7 +159,12 @@ def fmt_add_result(thought_id: str, metadata: dict, content: str | None = None) 
 # ---------------------------------------------------------------------------
 
 
-async def cmd_add(args) -> None:
+async def cmd_add(args: argparse.Namespace) -> None:
+    """Führt den add-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     if args.file:
         try:
             with open(args.file, encoding="utf-8") as f:
@@ -158,9 +203,14 @@ async def cmd_add(args) -> None:
         )
 
 
-async def cmd_search(args) -> None:
+async def cmd_search(args: argparse.Namespace) -> None:
+    """Führt den search-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     con = db.init_db()
-    embedding = await ai.get_embedding(args.text)  # search braucht nur Embedding
+    embedding = await ai.get_embedding(args.text)
     results = db.search_thoughts(
         con, embedding, limit=args.limit, threshold=args.threshold
     )
@@ -172,7 +222,12 @@ async def cmd_search(args) -> None:
         print(fmt_search_results(results, args.text))
 
 
-def cmd_list(args) -> None:
+def cmd_list(args: argparse.Namespace) -> None:
+    """Führt den list-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     con = db.init_db()
     results = db.list_thoughts(
         con,
@@ -190,7 +245,12 @@ def cmd_list(args) -> None:
         print(fmt_thought_list(results, "Thoughts"))
 
 
-def cmd_stats(args) -> None:
+def cmd_stats(args: argparse.Namespace) -> None:
+    """Führt den stats-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     con = db.init_db()
     s = db.get_stats(con)
     con.close()
@@ -201,14 +261,19 @@ def cmd_stats(args) -> None:
         print(fmt_stats(s))
 
 
-def cmd_export(args) -> None:
+def cmd_export(args: argparse.Namespace) -> None:
+    """Führt den export-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     con = db.init_db()
     thoughts = db.export_thoughts(con, include_embeddings=args.full)
     con.close()
 
-    payload = {
+    payload: dict[str, Any] = {
         "version": 1,
-        "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "exported_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "count": len(thoughts),
         "include_embeddings": args.full,
         "thoughts": thoughts,
@@ -226,7 +291,12 @@ def cmd_export(args) -> None:
         print(data)
 
 
-async def cmd_import(args) -> None:
+async def cmd_import(args: argparse.Namespace) -> None:
+    """Führt den import-Befehl aus.
+
+    Args:
+        args: Geparste Kommandozeilen-Argumente
+    """
     try:
         with open(args.file, encoding="utf-8") as f:
             payload = json_mod.load(f)
@@ -236,7 +306,7 @@ async def cmd_import(args) -> None:
 
     # Unterstützt sowohl Export-Payload {"thoughts": [...]} als auch rohe Liste [...]
     if isinstance(payload, list):
-        thoughts = payload
+        thoughts: list[dict[str, Any]] = payload
     elif isinstance(payload, dict) and "thoughts" in payload:
         thoughts = payload["thoughts"]
     else:
@@ -279,11 +349,12 @@ async def cmd_import(args) -> None:
             errors += 1
             continue
 
-        metadata = t.get("metadata") or {}
+        metadata: dict[str, Any] = t.get("metadata") or {}
         created_at = t.get("created_at")
         updated_at = t.get("updated_at")
 
         try:
+            embedding: list[float]
             if reembed:
                 embedding, metadata_new = await ai.get_embedding_and_metadata(content)
                 # Metadaten aus Datei bevorzugen, falls vorhanden
@@ -329,6 +400,11 @@ async def cmd_import(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Erstellt den Argument-Parser für die CLI.
+
+    Returns:
+        Konfigurierter ArgumentParser
+    """
     parser = argparse.ArgumentParser(
         prog="openbrain",
         description="open-brain – Gedankenspeicher mit semantischer Suche",
@@ -416,6 +492,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """Haupteinstiegspunkt für die CLI."""
     parser = build_parser()
     args = parser.parse_args()
 
