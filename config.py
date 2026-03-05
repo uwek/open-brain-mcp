@@ -8,8 +8,65 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
+from typing import Literal
+
+# =============================================================================
+# Logging-Konfiguration (muss vor anderen Imports erfolgen)
+# =============================================================================
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+def get_log_level(name: str, default: LogLevel = "INFO") -> LogLevel:
+    """Liest das Log-Level aus einer Umgebungsvariable.
+
+    Args:
+        name: Name der Umgebungsvariable
+        default: Default-Level wenn nicht gesetzt oder ungültig
+
+    Returns:
+        Validiertes Log-Level
+    """
+    value = os.environ.get(name, default).upper()
+    valid_levels = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+    if value in valid_levels:
+        return value  # type: ignore[return-value]
+    return default
+
+
+def setup_logging(level: LogLevel = "INFO") -> None:
+    """Konfiguriert das Logging für alle Module.
+
+    Args:
+        level: Log-Level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    # Format mit Timestamp, Level, Module und Message
+    log_format = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+
+    # Root Logger konfigurieren
+    logging.basicConfig(
+        level=getattr(logging, level),
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.StreamHandler(sys.stderr),
+        ],
+        force=True,  # Überschreibt existierende Handler
+    )
+
+
+# Log-Level lesen und Logging initialisieren
+OPENBRAIN_LOG_LEVEL: LogLevel = get_log_level("OPENBRAIN_LOG_LEVEL", default="INFO")
+setup_logging(OPENBRAIN_LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Umgebungsvariablen
+# =============================================================================
 
 
 def require(name: str) -> str:

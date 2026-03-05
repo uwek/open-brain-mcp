@@ -5,7 +5,7 @@ Tests für config.py
 import os
 import pytest
 
-from config import validate_openrouter_key, require, get_float
+from config import validate_openrouter_key, require, get_float, get_log_level, setup_logging
 
 
 class TestValidateOpenrouterKey:
@@ -93,3 +93,74 @@ class TestGetFloat:
         """Liest 0 als gültigen Wert."""
         monkeypatch.setenv("TEST_ZERO", "0")
         assert get_float("TEST_ZERO", default=1.0) == 0.0
+
+
+class TestGetLogLevel:
+    """Tests für get_log_level() Funktion."""
+
+    def test_get_log_level_debug(self, monkeypatch):
+        """Liest DEBUG Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "DEBUG")
+        assert get_log_level("TEST_LOG_LEVEL", "INFO") == "DEBUG"
+
+    def test_get_log_level_info(self, monkeypatch):
+        """Liest INFO Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "INFO")
+        assert get_log_level("TEST_LOG_LEVEL", "DEBUG") == "INFO"
+
+    def test_get_log_level_warning(self, monkeypatch):
+        """Liest WARNING Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "WARNING")
+        assert get_log_level("TEST_LOG_LEVEL", "INFO") == "WARNING"
+
+    def test_get_log_level_error(self, monkeypatch):
+        """Liest ERROR Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "ERROR")
+        assert get_log_level("TEST_LOG_LEVEL", "INFO") == "ERROR"
+
+    def test_get_log_level_critical(self, monkeypatch):
+        """Liest CRITICAL Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "CRITICAL")
+        assert get_log_level("TEST_LOG_LEVEL", "INFO") == "CRITICAL"
+
+    def test_get_log_level_case_insensitive(self, monkeypatch):
+        """Level ist case-insensitive."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "debug")
+        assert get_log_level("TEST_LOG_LEVEL", "INFO") == "DEBUG"
+
+    def test_get_log_level_invalid_uses_default(self, monkeypatch):
+        """Verwendet Default bei ungültigem Level."""
+        monkeypatch.setenv("TEST_LOG_LEVEL", "INVALID")
+        assert get_log_level("TEST_LOG_LEVEL", "WARNING") == "WARNING"
+
+    def test_get_log_level_missing_uses_default(self, monkeypatch):
+        """Verwendet Default bei fehlender Variable."""
+        monkeypatch.delenv("MISSING_LOG_LEVEL", raising=False)
+        assert get_log_level("MISSING_LOG_LEVEL", "ERROR") == "ERROR"
+
+
+class TestSetupLogging:
+    """Tests für setup_logging() Funktion."""
+
+    def test_setup_logging_sets_level(self):
+        """setup_logging setzt das Log-Level."""
+        import logging
+        setup_logging("DEBUG")
+        root = logging.getLogger()
+        assert root.level == logging.DEBUG
+
+    def test_setup_logging_creates_handler(self):
+        """setup_logging erstellt einen Handler."""
+        import logging
+        setup_logging("INFO")
+        root = logging.getLogger()
+        assert len(root.handlers) > 0
+
+    def test_setup_logging_force_overwrites(self):
+        """setup_logging überschreibt existierende Handler."""
+        import logging
+        setup_logging("INFO")
+        initial_count = len(logging.getLogger().handlers)
+        setup_logging("DEBUG")
+        # Durch force=True sollte nur ein Handler bleiben
+        assert len(logging.getLogger().handlers) == initial_count

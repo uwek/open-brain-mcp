@@ -12,7 +12,9 @@ bei jedem MCP-Request geprüft.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
+import signal
 import sqlite3
 import sys
 from collections.abc import Generator
@@ -23,11 +25,57 @@ from typing import Any
 # unabhängig vom CWD beim Aufruf.
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Config importieren (initialisiert Logging)
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 import ai
+import config
 import db
+
+logger = logging.getLogger(__name__)
+
+# Globale Referenz für Cleanup
+_startup_connection: sqlite3.Connection | None = None
+_shutdown_requested = False
+
+
+# ---------------------------------------------------------------------------
+# Signal-Handler für Graceful Shutdown
+# ---------------------------------------------------------------------------
+
+
+def _signal_handler(signum: int, frame: Any) -> None:
+    """Behandelt Shutdown-Signale (SIGTERM, SIGINT).
+
+    Args:
+        signum: Signal-Nummer
+        frame: Aktueller Stack-Frame
+    """
+    global _shutdown_requested
+    signal_name = signal.Signals(signum).name
+    logger.info(f"Signal {signal_name} empfangen - Shutdown eingeleitet")
+    _shutdown_requested = True
+
+
+def setup_signal_handlers() -> None:
+    """Registriert Signal-Handler für graceful Shutdown."""
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    logger.debug("Signal-Handler für SIGTERM und SIGINT registriert")
+
+
+def cleanup() -> None:
+    """Führt Cleanup-Operationen vor dem Shutdown durch."""
+    global _startup_connection
+    if _startup_connection is not None:
+        try:
+            _startup_connection.close()
+            logger.info("Startup-Connection geschlossen")
+        except Exception as e:
+            logger.error(f"Fehler beim Schließen der Connection: {e}")
+        _startup_connection = None
+
 
 # ---------------------------------------------------------------------------
 # Auth-Middleware
@@ -74,6 +122,7 @@ class KeyAuthMiddleware(Middleware):
                 "key"
             )
             if provided != self.key:
+                logger.warning("Ungültiger API-Key in Request")
                 raise PermissionError(
                     "Ungültiger oder fehlender API-Key (x-brain-key)."
                 )
@@ -113,7 +162,7 @@ def get_db_connection() -> Generator[sqlite3.Connection, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
+def build_server(access_key: str | None) -> tuple[FastMCP, sqlite3.Connection]:
     """Erstellt und konfiguriert den FastMCP-Server.
 
     Args:
@@ -122,9 +171,12 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
     Returns:
         Tuple aus (FastMCP Instanz, Startup Connection)
     """
+    logger.debug(f"Build server mit access_key={'***' if access_key else None}")
+
     middleware: list[Middleware] = []
     if access_key:
         middleware.append(KeyAuthMiddleware(access_key))
+        logger.info("Auth-Middleware aktiviert")
 
     mcp = FastMCP(
         name="open-brain",
@@ -133,13 +185,79 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
             "Open Brain speichert deine Gedanken, Notizen und Ideen "
             "mit semantischer Vektorsuche. "
             "Nutze 'add' zum Speichern, 'search' zum Suchen, "
-            "'list' zum Auflisten und 'stats' für eine Übersicht."
+            "'list_thoughts' zum Auflisten, 'stats' für eine Übersicht "
+            "und 'health' für Health-Checks."
         ),
         middleware=middleware,
     )
 
     # Connection für Startup-Checks (wird nach build_server geschlossen)
     startup_con = db.init_db()
+    logger.info(f"Datenbank initialisiert: {config.OPENBRAIN_DB_PATH}")
+
+    # -----------------------------------------------------------------------
+    # Tool: health
+    # -----------------------------------------------------------------------
+
+    @mcp.tool(
+        description=(
+            "Prüft den Health-Status des Servers. "
+            "Testet Datenbank-Connectivity und gibt Status zurück."
+        )
+    )
+    async def health() -> str:
+        """Health-Check für den Server.
+
+        Returns:
+            Health-Status mit DB-Connectivity Check
+        """
+        import time
+
+        start = time.monotonic()
+        status: dict[str, Any] = {
+            "status": "healthy",
+            "checks": {},
+        }
+
+        # DB-Connectivity Check
+        try:
+            with get_db_connection() as con:
+                result = con.execute("SELECT COUNT(*) FROM thoughts").fetchone()
+                thought_count = result[0] if result else 0
+                status["checks"]["database"] = {
+                    "status": "ok",
+                    "thoughts": thought_count,
+                }
+                logger.debug(f"Health check: DB ok, {thought_count} thoughts")
+        except Exception as e:
+            status["status"] = "unhealthy"
+            status["checks"]["database"] = {
+                "status": "error",
+                "error": str(e),
+            }
+            logger.error(f"Health check: DB error: {e}")
+
+        # Response Time
+        elapsed_ms = (time.monotonic() - start) * 1000
+        status["response_time_ms"] = round(elapsed_ms, 2)
+
+        # Status als formatierter String
+        lines = [
+            f"**Status:** {status['status'].upper()}",
+            f"**Response Time:** {status['response_time_ms']}ms",
+            "",
+            "**Checks:**",
+        ]
+        for check_name, check_result in status["checks"].items():
+            check_status = check_result.get("status", "unknown")
+            emoji = "✅" if check_status == "ok" else "❌"
+            lines.append(f"  - {emoji} {check_name}: {check_status}")
+            if "thoughts" in check_result:
+                lines.append(f"    Thoughts: {check_result['thoughts']}")
+            if "error" in check_result:
+                lines.append(f"    Error: {check_result['error']}")
+
+        return "\n".join(lines)
 
     # -----------------------------------------------------------------------
     # Tool: add
@@ -160,10 +278,13 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
         Returns:
             Bestätigung mit Metadaten und ID
         """
+        logger.debug(f"Add thought: {thought[:50]}...")
         embedding, metadata = await ai.get_embedding_and_metadata(thought)
 
         with get_db_connection() as con:
             thought_id = db.insert_thought(con, thought, embedding, metadata)
+
+        logger.info(f"Thought gespeichert: {thought_id} ({metadata.get('type', 'unknown')})")
 
         lines = [f"Gespeichert als **{metadata.get('type', 'thought')}**"]
         if metadata.get("topics"):
@@ -201,10 +322,13 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
         Returns:
             Formatierter String mit Suchergebnissen
         """
+        logger.debug(f"Search: '{text}' (limit={limit}, threshold={threshold})")
         embedding = await ai.get_embedding(text)
 
         with get_db_connection() as con:
             results = db.search_thoughts(con, embedding, limit=limit, threshold=threshold)
+
+        logger.info(f"Search found {len(results)} results for '{text[:30]}'")
 
         if not results:
             return f'Keine Thoughts gefunden, die zu "{text}" passen.'
@@ -256,6 +380,8 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
         Returns:
             Formatierter String mit aufgelisteten Thoughts
         """
+        logger.debug(f"List thoughts: limit={limit}, type={type}, topic={topic}, person={person}, days={days}")
+
         with get_db_connection() as con:
             results = db.list_thoughts(
                 con,
@@ -265,6 +391,8 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
                 person=person,
                 days=days,
             )
+
+        logger.info(f"List returned {len(results)} thoughts")
 
         if not results:
             return "Keine Thoughts gefunden."
@@ -299,6 +427,8 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
         with get_db_connection() as con:
             s = db.get_stats(con)
 
+        logger.debug(f"Stats: {s['total']} thoughts total")
+
         lines = [
             f"**Gesamt:** {s['total']} Thought(s)",
             f"**Zeitraum:** {s['oldest'] or 'N/A'} → {s['newest'] or 'N/A'}",
@@ -332,6 +462,8 @@ def build_server(access_key: str | None) -> tuple[FastMCP, Any]:
 
 def main() -> None:
     """Haupteinstiegspunkt für den Server."""
+    global _startup_connection
+
     parser = argparse.ArgumentParser(description="open-brain MCP-Server")
     parser.add_argument(
         "--port", type=int, default=4567, help="HTTP-Port (default: 4567)"
@@ -344,22 +476,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Signal-Handler registrieren
+    setup_signal_handlers()
+
     if args.key:
-        print("[open-brain] Auth aktiv – Key gesetzt.")
+        logger.info("Auth aktiv – API-Key gesetzt")
     else:
-        print(
-            "[open-brain] Kein Auth-Key gesetzt – Server läuft ohne Authentifizierung."
-        )
+        logger.warning("Kein Auth-Key gesetzt – Server läuft ohne Authentifizierung")
 
     mcp, con = build_server(access_key=args.key)
-    print(f"[open-brain] Starte HTTP-Server auf {args.host}:{args.port} ...")
+    _startup_connection = con
+
+    logger.info(f"Starte HTTP-Server auf {args.host}:{args.port}")
+    logger.info(f"Log-Level: {config.OPENBRAIN_LOG_LEVEL}")
+
     try:
         mcp.run(transport="http", host=args.host, port=args.port)
     except KeyboardInterrupt:
-        pass
+        logger.info("KeyboardInterrupt empfangen")
+    except Exception as e:
+        logger.error(f"Server-Fehler: {e}")
+        raise
     finally:
-        con.close()
-        print("\n[open-brain] Datenbankverbindung geschlossen. Auf Wiedersehen.")
+        cleanup()
+        logger.info("Server beendet. Auf Wiedersehen.")
 
 
 if __name__ == "__main__":

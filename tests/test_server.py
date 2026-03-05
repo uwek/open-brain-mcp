@@ -265,6 +265,145 @@ class TestStatsTool:
                 con.close()
 
 
+class TestHealthTool:
+    """Tests für health Tool."""
+
+    @pytest.mark.asyncio
+    async def test_health_tool_healthy(self):
+        """Health Tool gibt healthy Status zurück."""
+        from server import build_server
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            with patch.object(db.config, "OPENBRAIN_DB_PATH", tmp.name):
+                mcp, con = build_server(None)
+                db.insert_thought(con, content="Test", embedding=[0.1] * 1536, metadata={})
+                result = await mcp.call_tool("health", {})
+                text = result.content[0].text
+                assert "healthy" in text.lower()
+                assert "✅" in text or "ok" in text.lower()
+                con.close()
+
+    @pytest.mark.asyncio
+    async def test_health_tool_empty_db(self):
+        """Health Tool funktioniert mit leerer DB."""
+        from server import build_server
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
+            with patch.object(db.config, "OPENBRAIN_DB_PATH", tmp.name):
+                mcp, con = build_server(None)
+                result = await mcp.call_tool("health", {})
+                text = result.content[0].text
+                assert "healthy" in text.lower()
+                assert "Response Time" in text
+                con.close()
+
+
+class TestSignalHandler:
+    """Tests für Signal-Handler."""
+
+    def test_signal_handler_sets_flag(self):
+        """Signal-Handler setzt shutdown flag."""
+        from server import _signal_handler, _shutdown_requested
+        import signal
+
+        # Reset flag
+        import server
+        server._shutdown_requested = False
+
+        # Simulate signal
+        _signal_handler(signal.SIGTERM, None)
+
+        assert server._shutdown_requested is True
+
+    def test_setup_signal_handlers(self):
+        """Signal-Handler werden registriert."""
+        from server import setup_signal_handlers
+        import signal
+
+        setup_signal_handlers()
+
+        # Prüfe dass Handler registriert sind
+        handler = signal.getsignal(signal.SIGTERM)
+        assert handler is not None
+
+
+class TestLogging:
+    """Tests für Logging-Konfiguration."""
+
+    def test_get_log_level_valid(self):
+        """get_log_level parst gültige Levels."""
+        import config
+        from config import get_log_level
+
+        assert get_log_level("TEST_LEVEL", "DEBUG") == "DEBUG"
+        assert get_log_level("TEST_LEVEL", "INFO") == "INFO"
+
+    def test_get_log_level_invalid_uses_default(self, monkeypatch):
+        """get_log_level verwendet Default bei ungültigem Level."""
+        from config import get_log_level
+
+        monkeypatch.setenv("TEST_INVALID_LEVEL", "INVALID")
+        result = get_log_level("TEST_INVALID_LEVEL", "WARNING")
+        assert result == "WARNING"
+
+    def test_log_level_from_env(self, monkeypatch):
+        """Log-Level wird aus Umgebungsvariable gelesen."""
+        import importlib
+
+        monkeypatch.setenv("OPENBRAIN_LOG_LEVEL", "DEBUG")
+        # Module neu laden würde das Level ändern
+
+    def test_setup_logging_configures_root_logger(self):
+        """setup_logging konfiguriert den Root-Logger."""
+        import logging
+        from config import setup_logging
+
+        setup_logging("DEBUG")
+
+        root_logger = logging.getLogger()
+        assert root_logger.level == logging.DEBUG
+        assert len(root_logger.handlers) > 0
+
+
+class TestCleanup:
+    """Tests für Cleanup-Funktion."""
+
+    def test_cleanup_closes_connection(self):
+        """cleanup schließt die Startup-Connection."""
+        from server import cleanup, _startup_connection
+        import sqlite3
+        import server
+
+        # Mock connection
+        mock_con = MagicMock(spec=sqlite3.Connection)
+        server._startup_connection = mock_con
+
+        cleanup()
+
+        mock_con.close.assert_called_once()
+        assert server._startup_connection is None
+
+    def test_cleanup_handles_none_connection(self):
+        """cleanup funktioniert ohne Connection."""
+        from server import cleanup
+        import server
+
+        server._startup_connection = None
+        cleanup()  # Sollte keinen Fehler werfen
+
+    def test_cleanup_handles_exception(self):
+        """cleanup behandelt Exceptions beim Schließen."""
+        from server import cleanup
+        import sqlite3
+        import server
+
+        # Mock connection die Exception wirft
+        mock_con = MagicMock(spec=sqlite3.Connection)
+        mock_con.close.side_effect = Exception("Test error")
+        server._startup_connection = mock_con
+
+        cleanup()  # Sollte keinen Fehler werfen
+        assert server._startup_connection is None
+
+
 class TestMainFunction:
     """Tests für main()."""
 

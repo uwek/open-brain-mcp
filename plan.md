@@ -376,9 +376,9 @@ open-brain-mcp/
 | 10 | .env.example | Gering | Niedrig | ✅ Done |
 | 9 | Dateien bereinigen | Gering | Niedrig | ⬜ Todo |
 | 11 | Type-Hints | Mittel | Niedrig | ✅ Done |
-| 12 | Logging | Mittel | Niedrig | ⬜ Todo |
-| 13 | Health-Check | Gering | Niedrig | ⬜ Todo |
-| 15 | Graceful Shutdown | Gering | Niedrig | ⬜ Todo |
+| 12 | Logging | Mittel | Niedrig | ✅ Done |
+| 13 | Health-Check | Gering | Niedrig | ✅ Done |
+| 15 | Graceful Shutdown | Gering | Niedrig | ✅ Done |
 | 14 | Auth verbessern | Mittel | Niedrig | ⬜ Todo |
 
 ---
