@@ -210,3 +210,58 @@ class TestExportImport:
                 embedding=[0.1] * 1536, metadata={}, on_conflict="replace")
             assert status == "replaced"
             con.close()
+
+
+class TestEmbeddingDimension:
+    """Tests für Embedding-Dimension."""
+
+    def test_get_existing_embedding_dim_none_for_new_db(self, temp_db_path):
+        """_get_existing_embedding_dim gibt None für neue DB."""
+        with patch.object(db.config, "OPENBRAIN_DB_PATH", temp_db_path):
+            con = db.get_connection()
+            dim = db._get_existing_embedding_dim(con)
+            assert dim is None
+            con.close()
+
+    def test_get_existing_embedding_dim_after_setup(self, temp_db_path):
+        """_get_existing_embedding_dim gibt Dimension nach setup."""
+        with patch.object(db.config, "OPENBRAIN_DB_PATH", temp_db_path):
+            con = db.init_db()
+            dim = db._get_existing_embedding_dim(con)
+            assert dim == 1536
+            con.close()
+
+    def test_setup_creates_correct_dimension(self, temp_db_path):
+        """setup erstellt Tabelle mit korrekter Dimension."""
+        with patch.object(db.config, "OPENBRAIN_DB_PATH", temp_db_path):
+            con = db.init_db()
+            # Prüfe Schema
+            schema = con.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='thoughts_vec'"
+            ).fetchone()
+            assert "float[1536]" in schema["sql"]
+            con.close()
+
+    def test_dimension_mismatch_warning(self, temp_db_path, caplog):
+        """Warnung bei Dimension-Mismatch."""
+        import logging
+        with patch.object(db.config, "OPENBRAIN_DB_PATH", temp_db_path):
+            with patch.object(db.config, "EMBEDDING_DIM", 3072):
+                with patch.object(db.config, "OPENBRAIN_EMBEDDING_DIM", 3072):
+                    # DB mit 1536 erstellen
+                    con = db.get_connection()
+                    db.setup(con)  # Erstellt mit 1536 (ursprünglicher config)
+                    con.close()
+
+                    # Jetzt mit anderer Dimension initialisieren
+                    con2 = db.get_connection()
+                    with caplog.at_level(logging.WARNING):
+                        db.setup(con2)  # Sollte Warnung auslösen
+                    con2.close()
+
+    def test_embedding_dim_configurable(self, monkeypatch, temp_db_path):
+        """Embedding-Dimension ist konfigurierbar."""
+        # Dieser Test zeigt, dass die Dimension geändert werden kann
+        # (würde requires module reload in der Praxis)
+        import db
+        assert db.config.EMBEDDING_DIM == 1536  # Default

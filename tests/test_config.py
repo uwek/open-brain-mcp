@@ -164,3 +164,57 @@ class TestSetupLogging:
         setup_logging("DEBUG")
         # Durch force=True sollte nur ein Handler bleiben
         assert len(logging.getLogger().handlers) == initial_count
+
+
+class TestGetInt:
+    """Tests für get_int() Funktion."""
+
+    def test_get_int_with_value(self, monkeypatch):
+        """Liest Integer aus Umgebungsvariable."""
+        from config import get_int
+        monkeypatch.setenv("TEST_INT", "1536")
+        assert get_int("TEST_INT", default=768) == 1536
+
+    def test_get_int_missing_uses_default(self, monkeypatch):
+        """Verwendet Default bei fehlender Variable."""
+        from config import get_int
+        monkeypatch.delenv("MISSING_INT", raising=False)
+        assert get_int("MISSING_INT", default=3072) == 3072
+
+    def test_get_int_invalid_uses_default(self, monkeypatch):
+        """Verwendet Default bei ungültigem Wert."""
+        from config import get_int
+        monkeypatch.setenv("INVALID_INT", "not-a-number")
+        result = get_int("INVALID_INT", default=1536)
+        assert result == 1536
+
+    def test_get_int_zero(self, monkeypatch):
+        """Liest 0 als gültigen Wert."""
+        from config import get_int
+        monkeypatch.setenv("TEST_ZERO", "0")
+        assert get_int("TEST_ZERO", default=100) == 0
+
+    def test_get_int_negative(self, monkeypatch):
+        """Liest negative Zahlen."""
+        from config import get_int
+        monkeypatch.setenv("TEST_NEG", "-1")
+        assert get_int("TEST_NEG", default=0) == -1
+
+
+class TestEmbeddingDim:
+    """Tests für Embedding-Dimension Konfiguration."""
+
+    def test_default_embedding_dim(self):
+        """Default Embedding-Dimension ist 1536."""
+        import config
+        assert config.OPENBRAIN_EMBEDDING_DIM == 1536
+        assert config.EMBEDDING_DIM == 1536
+
+    def test_embedding_dim_from_env(self, monkeypatch):
+        """Embedding-Dimension kann über Env gesetzt werden."""
+        import importlib
+        import config
+
+        monkeypatch.setenv("OPENBRAIN_EMBEDDING_DIM", "3072")
+        # Module neu laden würde den Wert ändern
+        # (in der Praxis nicht trivial, da config bereits geladen)

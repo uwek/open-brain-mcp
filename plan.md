@@ -371,7 +371,7 @@ open-brain-mcp/
 | 4 | API-Key Validierung | Gering | Mittel | ✅ Done |
 | 5 | pyproject.toml | Mittel | Mittel | ✅ Done |
 | 6 | Tests (>80% Coverage) | Hoch | Mittel | ✅ Done |
-| 7 | Embedding-Dimension | Mittel | Mittel | ⬜ Todo |
+| 7 | Embedding-Dimension | Mittel | Mittel | ✅ Done |
 | 8 | Rate-Limiter | Mittel | Mittel | ✅ Done |
 | 10 | .env.example | Gering | Niedrig | ✅ Done |
 | 9 | Dateien bereinigen | Gering | Niedrig | ⬜ Todo |

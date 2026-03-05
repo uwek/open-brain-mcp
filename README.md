@@ -1,7 +1,17 @@
-# open-brain
+# open-brain-mcp
 
-Persönlicher Gedankenspeicher mit semantischer Vektorsuche.  
+Persönlicher Gedankenspeicher mit semantischer Vektorsuche.
 MCP-Server (HTTP) + CLI, gebaut mit Python, FastMCP, SQLite und sqlite-vec.
+
+---
+
+## Features
+
+- **Semantische Suche**: Finde Gedanken nach Bedeutung, nicht nur nach Keywords
+- **Automatische Metadaten**: Extrahiert Typ, Topics, Personen und Action Items via GPT-4o-mini
+- **MCP-Server**: Integration mit Claude Desktop und anderen MCP-Clients
+- **CLI**: Komfortables Kommandozeilen-Interface
+- **Export/Import**: Backup und Restore aller Daten
 
 ---
 
@@ -14,145 +24,66 @@ MCP-Server (HTTP) + CLI, gebaut mit Python, FastMCP, SQLite und sqlite-vec.
 
 ## Installation
 
+### Mit pip
+
 ```bash
-pip install -r open-brain/requirements.txt
+# Repository klonen
+git clone https://github.com/user/open-brain-mcp.git
+cd open-brain-mcp
+
+# Virtuelle Umgebung erstellen
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# oder: .venv\Scripts\activate  # Windows
+
+# Installieren
+pip install -e .
+
+# Mit Entwicklungs-Dependencies (Tests, Linting)
+pip install -e ".[dev]"
 ```
 
-Das installiert:
+### Konfiguration
 
-| Paket | Zweck |
-|---|---|
-| `fastmcp` | MCP-Server-Framework |
-| `httpx` | Async HTTP-Client für OpenRouter |
-| `sqlite-vec` | SQLite-Erweiterung für Vektorsuche (bringt `.so`/`.dylib` mit) |
-
-> **Hinweis:** `sqlite-vec` wird als Python-Package installiert und lädt die
-> native Extension automatisch. Kein manuelles Kompilieren oder Setzen von
-> Pfad-Variablen nötig.
-
----
-
-## Konfiguration
-
-Lege eine `.env`-Datei an (oder setze die Variablen in der Shell):
+Kopiere `.env.example` zu `.env` und fülle die Werte aus:
 
 ```bash
 # Pflicht
-export OPENROUTER_API_KEY="sk-or-..."
+OPENROUTER_API_KEY=sk-or-your-key-here
 
-# Optional – Pfad zur Datenbankdatei (default: open-brain/brain.db)
-export OPENBRAIN_DB_PATH="/pfad/zu/brain.db"
+# Optional
+OPENBRAIN_DB_PATH=./brain.db
+OPENROUTER_RATE_LIMIT=2.0
+OPENBRAIN_EMBEDDING_DIM=1536
+OPENBRAIN_LOG_LEVEL=INFO
 ```
-
-Die Datenbank wird beim ersten Start automatisch angelegt.
 
 ---
 
-## MCP-Server starten
+## Schnellstart
+
+### Server starten
 
 ```bash
-python open-brain/server.py
+open-brain --port 4567
+# oder: python server.py
 ```
 
-### Optionen
-
-| Option | Default | Beschreibung |
-|---|---|---|
-| `--port` | `4567` | HTTP-Port |
-| `--host` | `0.0.0.0` | Bind-Adresse |
-| `--key` | _(kein)_ | API-Key für Authentifizierung |
-
-### Mit Authentifizierung
+### Gedanken speichern (CLI)
 
 ```bash
-python open-brain/server.py --port 4567 --key meingeheimespasswort
+open-brain add "Ich sollte das Deployment mit GitHub Actions automatisieren."
 ```
 
-Clients müssen dann bei jedem Request entweder:
-- den Header `x-brain-key: meingeheimespasswort` mitsenden, **oder**
-- den Query-Parameter `?key=meingeheimespasswort` anhängen.
-
----
-
-## CLI
+### Suchen (CLI)
 
 ```bash
-# Thought speichern
-python open-brain/cli.py add "Ich sollte nächste Woche das Deployment automatisieren."
-
-# Semantisch suchen
-python open-brain/cli.py search "Deployment automatisieren"
-
-# Auflisten (mit Filtern)
-python open-brain/cli.py list --limit 20
-python open-brain/cli.py list --type task --days 7
-python open-brain/cli.py list --topic python --person "Max Mustermann"
-
-# Statistiken
-python open-brain/cli.py stats
-
-# JSON-Ausgabe (statt Markdown)
-python open-brain/cli.py stats --json
-python open-brain/cli.py search "Projekt" --json
-
-# Export
-python open-brain/cli.py export backup.json          # nur content + metadata
-python open-brain/cli.py export backup_full.json --full  # inkl. Embeddings
-
-# Import
-python open-brain/cli.py import backup.json          # Embeddings werden neu generiert
-python open-brain/cli.py import backup_full.json     # Embeddings aus Datei übernommen
-python open-brain/cli.py import backup.json --reembed            # Embeddings immer neu
-python open-brain/cli.py import backup.json --on-conflict replace  # Duplikate überschreiben
+open-brain search "Deployment"
 ```
 
-### Filter für `list`
+### Mit Claude Desktop nutzen
 
-| Flag | Beschreibung |
-|---|---|
-| `--type` | `observation`, `task`, `idea`, `reference`, `person_note` |
-| `--topic` | Topic-Tag (z. B. `python`) |
-| `--person` | Name einer erwähnten Person |
-| `--days N` | Nur Thoughts der letzten N Tage |
-| `--limit N` | Max. Anzahl Ergebnisse (default: 10) |
-
-### Optionen für `export`
-
-| Flag | Beschreibung |
-|---|---|
-| `DATEI` | Zieldatei (optional, default: stdout) |
-| `--full` | Embeddings mit exportieren – nötig für verlustfreien Import ohne Re-Embedding |
-
-### Optionen für `import`
-
-| Flag | Beschreibung |
-|---|---|
-| `DATEI` | Quelldatei (JSON, Pflicht) |
-| `--reembed` | Embeddings aus Datei ignorieren, immer neu via API generieren |
-| `--on-conflict` | `skip` (default) oder `replace` – Verhalten bei bereits vorhandener ID |
-
-Das Import-Format ist der direkte Export-Output (`{"version":1, "thoughts":[...]}`) oder eine rohe JSON-Liste.
-
----
-
-## MCP-Client-Konfiguration (Claude Desktop)
-
-In `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "open-brain": {
-      "url": "http://localhost:4567/mcp",
-      "headers": {
-        "x-brain-key": "meingeheimespasswort"
-      }
-    }
-  }
-}
-```
-
-Ohne Auth (kein `--key`):
+Füge zu `~/Library/Application Support/Claude/claude_desktop_config.json` hinzu:
 
 ```json
 {
@@ -166,38 +97,186 @@ Ohne Auth (kein `--key`):
 
 ---
 
-## Verfügbare MCP-Tools
+## CLI-Referenz
+
+### Gedanken speichern
+
+```bash
+# Direkt
+open-brain add "Mein Gedanke..."
+
+# Aus Datei
+open-brain add --file notes.txt
+
+# JSON-Ausgabe
+open-brain add "Test" --json
+```
+
+### Suchen
+
+```bash
+# Semantische Suche
+open-brain search "Suchbegriff"
+
+# Mit Optionen
+open-brain search "python" --limit 20 --threshold 0.5
+open-brain search "meeting" --json
+```
+
+### Auflisten
+
+```bash
+# Alle Gedanken
+open-brain list
+
+# Mit Filtern
+open-brain list --type task --days 7
+open-brain list --topic python --person "Max"
+open-brain list --limit 20 --json
+```
+
+### Statistiken
+
+```bash
+open-brain stats
+open-brain stats --json
+```
+
+### Export/Import
+
+```bash
+# Export
+open-brain export backup.json
+open-brain export backup_full.json --full  # inkl. Embeddings
+
+# Import
+open-brain import backup.json
+open-brain import backup.json --on-conflict replace
+```
+
+---
+
+## MCP-Server
+
+### Startoptionen
+
+| Option | Default | Beschreibung |
+|--------|---------|--------------|
+| `--port` | 4567 | HTTP-Port |
+| `--host` | 0.0.0.0 | Bind-Adresse |
+| `--key` | - | API-Key für Authentifizierung |
+
+### Mit Authentifizierung
+
+```bash
+open-brain --key mein-geheimes-passwort
+```
+
+Clients müssen dann `x-brain-key` Header oder `?key=` Parameter senden.
+
+### Verfügbare Tools
 
 | Tool | Beschreibung |
-|---|---|
-| `add(thought)` | Thought speichern – extrahiert Metadaten & Embedding automatisch |
-| `search(text, limit?, threshold?)` | Semantische Suche nach Bedeutung |
-| `list(limit?, type?, topic?, person?, days?)` | Thoughts auflisten mit Filtern |
-| `stats()` | Übersicht: Anzahl, Typen, Topics, Personen |
+|------|--------------|
+| `add(thought)` | Gedanke speichern mit automatischen Metadaten |
+| `search(text, limit?, threshold?)` | Semantische Suche |
+| `list_thoughts(limit?, type?, topic?, person?, days?)` | Auflisten mit Filtern |
+| `stats()` | Statistiken |
+| `health()` | Health-Check mit DB-Connectivity |
 
 ---
 
-## Datenbankstruktur
+## Konfiguration
 
-```
-thoughts            – Haupt-Tabelle (id, content, metadata JSON, created_at, updated_at)
-thoughts_vec        – Virtuelle sqlite-vec Tabelle (rowid → embedding float[1536])
-```
+### Umgebungsvariablen
 
-Verknüpfung über `rowid`. Vektorsuche ist Brute-Force Cosine KNN – ausreichend
-für persönliche Nutzung (bis ~100k Thoughts).
+| Variable | Default | Beschreibung |
+|----------|---------|--------------|
+| `OPENROUTER_API_KEY` | - | **Pflicht**: OpenRouter API-Key |
+| `OPENBRAIN_DB_PATH` | `./brain.db` | Pfad zur SQLite-Datenbank |
+| `OPENROUTER_RATE_LIMIT` | 2.0 | API-Calls pro Sekunde |
+| `OPENBRAIN_EMBEDDING_DIM` | 1536 | Embedding-Dimension |
+| `OPENBRAIN_LOG_LEVEL` | INFO | Log-Level (DEBUG, INFO, WARNING, ERROR) |
+
+### Embedding-Modelle
+
+| Modell | Dimension | Empfehlung |
+|--------|-----------|------------|
+| `text-embedding-3-small` | 1536 | Default, guter Kompromiss |
+| `text-embedding-3-large` | 3072 | Höhere Qualität, mehr Kosten |
+| `text-embedding-ada-002` | 1536 | Älteres Modell |
+
+**Wichtig:** Bei Wechsel der Dimension müssen bestehende Embeddings neu generiert werden!
 
 ---
 
-## Projektstruktur
+## Entwicklung
+
+### Tests ausführen
+
+```bash
+# Alle Tests
+pytest tests/ -v
+
+# Mit Coverage
+pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+### Code-Qualität
+
+```bash
+# Type-Check
+mypy *.py
+
+# Linting
+ruff check *.py
+
+# Formatierung
+ruff format *.py
+```
+
+### Projektstruktur
 
 ```
-open-brain/
-├── config.py        # Umgebungsvariablen
-├── db.py            # Datenbankschema & Queries
-├── ai.py            # OpenRouter: Embeddings & Metadata
-├── server.py        # FastMCP HTTP-Server
+open-brain-mcp/
+├── config.py        # Konfiguration & Logging
+├── db.py            # Datenbankschicht
+├── ai.py            # OpenRouter Integration
+├── server.py        # MCP-Server
 ├── cli.py           # CLI-Anwendung
-├── requirements.txt
+├── pyproject.toml   # Projekt-Konfiguration
+├── tests/           # Test-Suite
+│   ├── test_ai.py
+│   ├── test_cli.py
+│   ├── test_config.py
+│   ├── test_db.py
+│   └── test_server.py
 └── README.md
 ```
+
+---
+
+## Technologie-Stack
+
+- **[FastMCP](https://github.com/anthropics/fastmcp)**: MCP-Server Framework
+- **[sqlite-vec](https://github.com/asg017/sqlite-vec)**: Vektorsuche in SQLite
+- **[OpenRouter](https://openrouter.ai)**: API für Embeddings und LLM
+- **[tenacity](https://github.com/jd/tenacity)**: Retry-Logik
+
+---
+
+## Lizenz
+
+MIT
+
+---
+
+## Beitragen
+
+Issues und Pull Requests sind willkommen!
+
+1. Fork erstellen
+2. Feature-Branch: `git checkout -b feature/mein-feature`
+3. Commit: `git commit -m 'Add feature'`
+4. Push: `git push origin feature/mein-feature`
+5. Pull Request öffnen

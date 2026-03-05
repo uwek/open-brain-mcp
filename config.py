@@ -155,4 +155,33 @@ OPENROUTER_RATE_LIMIT: float = get_float("OPENROUTER_RATE_LIMIT", default=2.0)
 OPENROUTER_BASE: str = "https://openrouter.ai/api/v1"
 EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
 METADATA_MODEL: str = "openai/gpt-4o-mini"
-EMBEDDING_DIM: int = 1536
+
+
+def get_int(name: str, default: int) -> int:
+    """Liest eine Integer-Umgebungsvariable mit Default-Wert.
+
+    Args:
+        name: Name der Umgebungsvariable
+        default: Default-Wert wenn nicht gesetzt oder ungültig
+
+    Returns:
+        Integer-Wert der Umgebungsvariable oder Default
+    """
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(f"Ungültiger Wert für {name}: '{value}', verwende Default: {default}")
+        return default
+
+
+# Embedding-Dimension (kann für andere Modelle geändert werden)
+# text-embedding-3-small: 1536
+# text-embedding-3-large: 3072
+# text-embedding-ada-002: 1536
+OPENBRAIN_EMBEDDING_DIM: int = get_int("OPENBRAIN_EMBEDDING_DIM", default=1536)
+
+# Legacy-Export für Rückwärtskompatibilität
+EMBEDDING_DIM: int = OPENBRAIN_EMBEDDING_DIM

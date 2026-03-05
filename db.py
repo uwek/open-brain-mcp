@@ -6,6 +6,7 @@ Nutzt SQLite + sqlite-vec (via Python-Package) für Vektorsuche.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import struct
 import uuid
@@ -14,6 +15,8 @@ from typing import Any
 import sqlite_vec
 
 import config
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_vec(v: list[float]) -> bytes:
@@ -48,6 +51,16 @@ def setup(con: sqlite3.Connection) -> None:
     Args:
         con: Aktive SQLite Connection
     """
+    # Prüfe ob thoughts_vec bereits existiert und hole Dimension
+    existing_dim = _get_existing_embedding_dim(con)
+    if existing_dim is not None and existing_dim != config.EMBEDDING_DIM:
+        logger.warning(
+            f"Embedding-Dimension-Mismatch! "
+            f"Bestehende DB: {existing_dim}, Konfiguration: {config.EMBEDDING_DIM}. "
+            f"Bestehende Embeddings sind inkompatibel. "
+            f"Setze OPENBRAIN_EMBEDDING_DIM={existing_dim} oder lösche die DB."
+        )
+
     con.executescript(f"""
         CREATE TABLE IF NOT EXISTS thoughts (
             id         TEXT PRIMARY KEY
@@ -78,6 +91,42 @@ def setup(con: sqlite3.Connection) -> None:
         );
     """)
     con.commit()
+
+
+def _get_existing_embedding_dim(con: sqlite3.Connection) -> int | None:
+    """Ermittelt die Embedding-Dimension einer existierenden thoughts_vec Tabelle.
+
+    Args:
+        con: Aktive SQLite Connection
+
+    Returns:
+        Dimension falls Tabelle existiert, sonst None
+    """
+    try:
+        # Prüfe ob thoughts_vec existiert
+        result = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='thoughts_vec'"
+        ).fetchone()
+        if result is None:
+            return None
+
+        # Hole Schema-Info über die virtuelle Tabelle
+        # sqlite-vec speichert die Dimension im Schema
+        schema = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='thoughts_vec'"
+        ).fetchone()
+        if schema is None:
+            return None
+
+        # Parse Dimension aus Schema: "embedding float[N]"
+        import re
+        match = re.search(r"embedding\s+float\[(\d+)\]", schema["sql"])
+        if match:
+            return int(match.group(1))
+        return None
+    except Exception as e:
+        logger.debug(f"Konnte Embedding-Dimension nicht ermitteln: {e}")
+        return None
 
 
 def init_db() -> sqlite3.Connection:
