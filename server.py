@@ -12,6 +12,7 @@ bei jedem MCP-Request geprüft.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import sqlite3
@@ -467,6 +468,10 @@ def main() -> None:
 
     try:
         mcp.run(transport="http", host=args.host, port=args.port)
+    except KeyboardInterrupt:
+        pass  # Sauberer Shutdown via Ctrl-C
+    except asyncio.CancelledError:
+        pass  # Sauberer Shutdown durch Uvicorn
     finally:
         cleanup()
         logger.info("Server beendet. Auf Wiedersehen.")
