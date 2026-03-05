@@ -296,35 +296,6 @@ class TestHealthTool:
                 con.close()
 
 
-class TestSignalHandler:
-    """Tests für Signal-Handler."""
-
-    def test_signal_handler_sets_flag(self):
-        """Signal-Handler setzt shutdown flag."""
-        from server import _signal_handler, _shutdown_requested
-        import signal
-
-        # Reset flag
-        import server
-        server._shutdown_requested = False
-
-        # Simulate signal
-        _signal_handler(signal.SIGTERM, None)
-
-        assert server._shutdown_requested is True
-
-    def test_setup_signal_handlers(self):
-        """Signal-Handler werden registriert."""
-        from server import setup_signal_handlers
-        import signal
-
-        setup_signal_handlers()
-
-        # Prüfe dass Handler registriert sind
-        handler = signal.getsignal(signal.SIGTERM)
-        assert handler is not None
-
-
 class TestLogging:
     """Tests für Logging-Konfiguration."""
 

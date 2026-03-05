@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
 import sqlite3
 import sys
 from collections.abc import Generator
@@ -37,32 +36,11 @@ logger = logging.getLogger(__name__)
 
 # Globale Referenz für Cleanup
 _startup_connection: sqlite3.Connection | None = None
-_shutdown_requested = False
 
 
 # ---------------------------------------------------------------------------
-# Signal-Handler für Graceful Shutdown
+# Cleanup
 # ---------------------------------------------------------------------------
-
-
-def _signal_handler(signum: int, frame: Any) -> None:
-    """Behandelt Shutdown-Signale (SIGTERM, SIGINT).
-
-    Args:
-        signum: Signal-Nummer
-        frame: Aktueller Stack-Frame
-    """
-    global _shutdown_requested
-    signal_name = signal.Signals(signum).name
-    logger.info(f"Signal {signal_name} empfangen - Shutdown eingeleitet")
-    _shutdown_requested = True
-
-
-def setup_signal_handlers() -> None:
-    """Registriert Signal-Handler für graceful Shutdown."""
-    signal.signal(signal.SIGTERM, _signal_handler)
-    signal.signal(signal.SIGINT, _signal_handler)
-    logger.debug("Signal-Handler für SIGTERM und SIGINT registriert")
 
 
 def cleanup() -> None:
@@ -476,9 +454,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Signal-Handler registrieren
-    setup_signal_handlers()
-
     if args.key:
         logger.info("Auth aktiv – API-Key gesetzt")
     else:
@@ -492,11 +467,6 @@ def main() -> None:
 
     try:
         mcp.run(transport="http", host=args.host, port=args.port)
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt empfangen")
-    except Exception as e:
-        logger.error(f"Server-Fehler: {e}")
-        raise
     finally:
         cleanup()
         logger.info("Server beendet. Auf Wiedersehen.")
