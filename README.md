@@ -1,7 +1,8 @@
 # open-brain-mcp
 
-Persönlicher Gedankenspeicher mit semantischer Vektorsuche.
-MCP-Server (HTTP) + CLI, gebaut mit Python, FastMCP, SQLite und sqlite-vec.
+Ein MCP-Server und CLI-Anwendung zum Speichern von Informationen mit semantischer Vektorsuche. Gedanken, Notizen und Ideen werden gespeichert und auf Anfrage als Kontext zur Verfügung gestellt.
+
+Der MCP-Server ist im Produktionsbetrieb per HTTP erreichbar und kann mit Claude Desktop oder anderen MCP-Clients genutzt werden.
 
 ---
 
@@ -12,6 +13,17 @@ MCP-Server (HTTP) + CLI, gebaut mit Python, FastMCP, SQLite und sqlite-vec.
 - **MCP-Server**: Integration mit Claude Desktop und anderen MCP-Clients
 - **CLI**: Komfortables Kommandozeilen-Interface
 - **Export/Import**: Backup und Restore aller Daten
+
+---
+
+## Tech-Stack
+
+| Komponente | Technologie |
+|------------|-------------|
+| Sprache | Python 3.11+ |
+| MCP-Framework | FastMCP |
+| Datenbank | SQLite + sqlite-vec |
+| LLM/Embeddings | OpenRouter (GPT-4o-mini, text-embedding-3-small) |
 
 ---
 
@@ -43,6 +55,24 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
+### sqlite-vec Installation
+
+`sqlite-vec` wird automatisch als Python-Package installiert und bringt die native Extension mit. Keine manuelle Installation nötig!
+
+Falls dennoch Probleme auftreten:
+
+**macOS:**
+```bash
+pip install sqlite-vec
+```
+
+**Linux:**
+```bash
+pip install sqlite-vec
+```
+
+**Hinweis:** Die native Bibliothek wird automatisch heruntergeladen. Bei Architektur-Problemen kann die Umgebungsvariable `SQLITE_VEC_PATH` gesetzt werden, um einen alternativen Pfad zur Bibliothek anzugeben.
+
 ### Konfiguration
 
 Kopiere `.env.example` zu `.env` und fülle die Werte aus:
@@ -57,6 +87,8 @@ OPENROUTER_RATE_LIMIT=2.0
 OPENBRAIN_EMBEDDING_DIM=1536
 OPENBRAIN_LOG_LEVEL=INFO
 ```
+
+Die Datenbank wird beim ersten Start automatisch erstellt.
 
 ---
 
@@ -94,6 +126,45 @@ Füge zu `~/Library/Application Support/Claude/claude_desktop_config.json` hinzu
   }
 }
 ```
+
+---
+
+## Funktionsweise
+
+### add(thought)
+
+Speichert einen neuen Gedanken mit automatisch extrahierten Metadaten:
+
+1. **Metadaten-Extraktion**: Via `openai/gpt-4o-mini` werden extrahiert:
+   - `people`: Erwähnte Personen
+   - `action_items`: Implizite To-Dos
+   - `dates_mentioned`: Erwähnte Daten (YYYY-MM-DD)
+   - `topics`: 1-3 kurze Topic-Tags
+   - `type`: `observation`, `task`, `idea`, `reference` oder `person_note`
+
+2. **Embedding-Erzeugung**: Via `openai/text-embedding-3-small` wird ein 1536-dimensionaler Vektor erzeugt.
+
+3. **Speicherung**: Gedanke, Embedding und Metadaten werden in SQLite gespeichert.
+
+### search(text)
+
+Semantische Suche nach Bedeutung. Nutzt Vektorähnlichkeit, um relevante Gedanken zu finden.
+
+### list_thoughts()
+
+Listet gespeicherte Gedanken mit optionalen Filtern:
+- `type`: Nach Typ filtern
+- `topic`: Nach Topic filtern
+- `person`: Nach Person filtern
+- `days`: Nach Zeitraum filtern
+
+### stats()
+
+Zeigt Statistiken: Gesamtanzahl, Typen, Top-Topics und Personen.
+
+### health()
+
+Health-Check mit Datenbank-Connectivity-Test für Monitoring.
 
 ---
 
@@ -183,6 +254,29 @@ Clients müssen dann `x-brain-key` Header oder `?key=` Parameter senden.
 | `list_thoughts(limit?, type?, topic?, person?, days?)` | Auflisten mit Filtern |
 | `stats()` | Statistiken |
 | `health()` | Health-Check mit DB-Connectivity |
+
+---
+
+## Datenbankstruktur
+
+```sql
+-- Haupttabelle
+CREATE TABLE thoughts (
+  id TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  metadata TEXT DEFAULT '{}',
+  created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Vektor-Tabelle (virtuell)
+CREATE VIRTUAL TABLE thoughts_vec USING vec0(
+  rowid INTEGER PRIMARY KEY,
+  embedding float[1536]
+);
+```
+
+Verknüpfung über `rowid`. Vektorsuche via sqlite-vec (Cosine KNN).
 
 ---
 
